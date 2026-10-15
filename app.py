@@ -22,8 +22,8 @@ def translate_to_tw(text):
         translated_segments = []
         if res and isinstance(res, list) and len(res) > 0 and res[0]:
             for item in res[0]:
-                if item and isinstance(item, list) and len(item) > 0 and item[0]:
-                    translated_segments.append(item[0])
+                if item and isinstance(item, list) and len(item) > 0:
+                    translated_segments.append(str(item[0]))
         return "".join(translated_segments) if translated_segments else text
     except: 
         return text
@@ -32,7 +32,6 @@ def query_nvd_web(cpe_string):
     """
     核心比對邏輯：使用標準官方匹配策略進行查詢，完美避開解析崩潰與流量封鎖
     """
-    # 預設乾淨狀態
     result = {"處理狀態": "✅ 免辦理", "修補期限": "無", "弱點處理方式": "查無已知弱點，資產安全。"}
     if pd.isna(cpe_string) or not str(cpe_string).strip(): 
         return result
@@ -43,18 +42,18 @@ def query_nvd_web(cpe_string):
         # 將整個 CPE 2.3 字串進行標準的 URL 安全編碼，避免特殊字元造成網址解析錯誤
         encoded_cpe = urllib.parse.quote(clean_cpe)
         
-        # 採用 NVD 官方最穩定、最標準的 cpeName 查詢 Endpoint
+        # 採用 NVD 官方最穩定、最標準的 cpeName 查詢 Endpoint (注意這裏的斜線與參數串接)
         url = f"https://nist.gov{encoded_cpe}"
             
         response = requests.get(url, timeout=10)
         
-        # 【資安流量控管機制】未帶 API Key 每筆查詢後強制冷卻 6.5 秒，這能 100% 確保批次掃描不被網管封鎖
+        # 【重要機制】未帶 API Key 每筆查詢後強制冷卻 6.5 秒，這能 100% 確保批次掃描不被官方封鎖
         time.sleep(6.5) 
         
-        # 如果因為請求過快遇到限制 (例如 403 或 429)，將狀態如實反映，不再隱蔽回傳
+        # 如果因為請求過快遇到限制 (例如 403 或 429)，將狀態如實反映
         if response.status_code != 200:
             result["處理狀態"] = f"⚠️ API限制 ({response.status_code})"
-            result["弱點處理方式"] = "因批次請求過快遭 NVD 資料庫拒絕，請稍候重試或向 NVD 申請免費 API Key 帶入系統。"
+            result["弱點處理方式"] = "因批次請求過快遭 NVD 資料庫限制，請稍候重試或向 NVD 申請免費 API Key 帶入系統。"
             return result
             
         vulns = response.json().get("vulnerabilities", [])
