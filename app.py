@@ -29,7 +29,7 @@ def clean_cpe_for_nvd(cpe_string):
 
 def query_nvd_web(cpe_string, api_key):
     """
-    93EA39CA-5BC8-F111-8374-129478FCB64D
+    修改此處：加入 api_key 參數來繞過 Cloudflare 防火牆
     """
     result = {"處理狀態": "✅ 免辦理", "修補期限": "無", "弱點處理方式": "查無已知弱點，資產安全。"}
     if pd.isna(cpe_string) or not str(cpe_string).strip(): return result
