@@ -10,7 +10,7 @@ def clean_name_engine(text):
     return str(text).lower().replace("_", "").replace("-", "").replace(" ", "").replace(".", "").strip()
 
 def sync_all_vendor_apis_to_memory():
-    """【全球多路大廠資安公告即時同步常式】欄位已完全校正對齊"""
+    """【全球多路大廠資安公告即時同步常式】"""
     cisa_url = "https://cisa.gov"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     temp_db = {}
@@ -38,7 +38,7 @@ def sync_all_vendor_apis_to_memory():
                         "patch": vuln.get("requiredAction", "請遵循原廠指引套用更新。")
                     })
         
-        # 2. 智能融合微軟 MSRC 核心伺服器產品矩陣 【💡 內部標籤統一為 description 與 patch】
+        # 2. 智能融合微軟 MSRC 核心伺服器產品矩陣 (.NET / Windows Server / SQL)
         ms_matrix = {
             "netframework": {
                 "cve": "CVE-2023-38180", 
@@ -81,7 +81,7 @@ def sync_all_vendor_apis_to_memory():
                 "patch": info["patch"]
             })
 
-        # 3. 智能融合 Linux、Firefox 與 VMware 官方公告 【💡 標籤完全校正對齊為 patch】
+        # 3. 智能融合 Linux、Firefox 與 VMware 官方公告
         non_ms_matrix = {
             "vmware:esxi": {
                 "cve": "CVE-2024-22252", 
@@ -127,7 +127,7 @@ def query_ultimate_cloud_engine(cpe_string, SECURE_DB):
     clean_cpe = cpe_string.strip().lower()
     today = datetime.now()
     
-    # ==================== 🛠️ 補強常式：自動攔截 EOL 孤兒資產 ====================
+    # ==================== 自動攔截 EOL 孤兒資產 ====================
     eol_keywords = {
         "office_web_components:2003": "Microsoft Office 2003 Web Components",
         "windows_server_2008": "Microsoft Windows Server 2008 R2",
@@ -145,7 +145,6 @@ def query_ultimate_cloud_engine(cpe_string, SECURE_DB):
                 f"🔗處置建議: 必須立即安排汰換時程，將主機作業系統或軟體套件強制無條件升級至尚在原廠生命週期內之安全版本。"
             )
             return result
-    # ====================================================================================================
 
     parts = clean_cpe.split(":")
     if len(parts) >= 5:
@@ -175,7 +174,7 @@ def query_ultimate_cloud_engine(cpe_string, SECURE_DB):
                 summary.append(
                     f"[{idx}] {cve_id} (Source: {source_tag})\n"
                     f"Description: {v['description']}\n"
-                    f"Remediation: {v['patch']}" # 這裡已完美修正為對應對接的 patch 標籤
+                    f"Remediation: {v['patch']}"
                 )
                 idx += 1
                 if idx > 3: break
@@ -190,12 +189,12 @@ def query_ultimate_cloud_engine(cpe_string, SECURE_DB):
                 result["弱點處理方式"] = "\n\n".join(summary)
             
     return result
-
 # --- Streamlit 網頁 UI 介面佈局 ---
 st.set_page_config(page_title="CPE 2.3 弱點自動化分析平台 (雲端旗艦純淨版)", layout="wide")
 st.title("🛡️ CPE 2.3 資產弱點分析與修補自動化平台 (雲端全動態版)")
-st.markdown("本系統已將**「NVD字典別名正規化」**、**「微軟MSRC公告」**與**「EOL過期老舊產品攔截常式」**完全移植至雲端網頁中。1秒自動完成跨大廠去盲點比對。")
+st.markdown("本系統已將**「NVD字典別名正規化」**、**「微軟MSRC公告」**與**「EOL過期老舊產品攔截常式」**完全移植至雲端網頁中。")
 
+# 初始化 Streamlit 記憶體狀態
 if "cloud_db" not in st.session_state: st.session_state.cloud_db = None
 if "db_status_msg" not in st.session_state: st.session_state.db_status_msg = None
 
@@ -232,3 +231,42 @@ if uploaded_file is not None:
         st.error("❌ 錯誤：上傳的 CSV 檔案中找不到名為 'CPE' 的欄位！")
     else:
         st.subheader("📋 原始資產資料預覽")
+        st.dataframe(df.head(3))
+        
+        # 💡 【天字第一號校正】補上實質的執行區塊與下載按鈕渲染，強勢衝破 44/44 卡死狀態
+        if st.button("🚀 第三步：開始全資產動態交叉比對分析"):
+            if not st.session_state.cloud_db:
+                st.error("❌ 拒絕執行：請先回到第一步點擊按鈕，載入大廠融合字典！")
+            else:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                statuses, deadlines, methods = [], [], []
+                total = len(df)
+                
+                # 執行高速雜湊匹配
+                for index, row in df.iterrows():
+                    status_text.text(f"⚡ 正在執行雲端高流速匹配比對第 {index+1}/{total} 筆資產...")
+                    res = query_ultimate_cloud_engine(row["CPE"], st.session_state.cloud_db)
+                    statuses.append(res["處理狀態"])
+                    deadlines.append(res["修補期限"])
+                    methods.append(res["弱點處理方式"])
+                    progress_bar.progress((index + 1) / total)
+                
+                # 將計算好的全新數據正確寫回 dataframe
+                df["處理狀態"] = statuses
+                df["修補期限"] = deadlines
+                df["弱點處理方式"] = methods
+                
+                status_text.text("🎉 全數動態資產跨廠比對完成！")
+                
+                st.subheader("📊 第四步：分析報告產出成功")
+                st.balloons() # 噴出成功的慶祝氣球
+                
+                # 轉成不亂碼的資安 csv 串流並立刻提供下載按鈕
+                csv_data = df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+                st.download_button(
+                    label="📥 點此下載最新 VANS 弱點修補英文報告 (CSV)",
+                    data=csv_data,
+                    file_name=f"CPE_Remediation_Report_EN.csv",
+                    mime="text/csv"
+                )
