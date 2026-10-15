@@ -11,19 +11,23 @@ def translate_to_tw(text):
     if not text or not text.strip(): 
         return "無說明"
     try:
-        # 將文字過長部分切斷，避免 API 傳輸錯誤
         clean_text = text.strip()[:800]
         url = "https://googleapis.com" + requests.utils.quote(clean_text)
         res = requests.get(url, timeout=5).json()
-        # 解析 Google 翻譯回傳的特殊巢狀陣列結構
-        return "".join([s[0] for s in res[0] if s[0]])
+        
+        # 修正 Google 翻譯回傳結構的解析方式
+        translated_segments = []
+        if res and isinstance(res, list) and len(res) > 0:
+            for item in res[0]:
+                if item and isinstance(item, list) and len(item) > 0:
+                    translated_segments.append(item[0])
+        return "".join(translated_segments) if translated_segments else text
     except: 
-        # 若翻譯發生異常，則回傳原文
         return text
 
 def query_nvd_web(cpe_string):
     """
-    核心比對邏輯：使用寬鬆匹配查詢 NVD API，精準抓出漏洞、CISA KEV 狀態與修補連結
+    核心比對邏輯：精準切割 CPE 欄位並組合安全關鍵字，完美避開 NVD 精準比對陷阱
     """
     result = {"處理狀態": "✅ 免辦理", "修補期限": "無", "弱點處理方式": "查無已知弱點，資產安全。"}
     if pd.isna(cpe_string) or not str(cpe_string).strip(): 
@@ -32,23 +36,26 @@ def query_nvd_web(cpe_string):
     clean_cpe = cpe_string.strip()
     
     try:
-        # 【關鍵修正】解構 CPE 字串，改採產品名與版本號做關鍵字寬鬆查詢，防範 NVD 的精準匹配陷阱
+        # 【正確分割 CPE 欄位】
         cpe_parts = clean_cpe.split(":")
-        if len(cpe_parts) >= 5:
+        if len(cpe_parts) >= 6:
+            # 索引 3 是廠商 (vendor)，索引 4 是產品名稱 (product)，索引 5 是主要版本號 (version)
             product = cpe_parts[4]
             version = cpe_parts[5]
+            
+            # 組合出正確的 NVD API 2.0 關鍵字查詢網址
             url = f"https://nist.gov{product} {version}"
         else:
             url = f"https://nist.gov{clean_cpe}"
             
         response = requests.get(url, timeout=10)
         
-        # 【強制冷卻】未帶 API Key 的請求每筆必須強制等待 6 秒，否則批次查詢在第 5 筆後一定會被 NVD 阻斷
+        # 【強制冷卻 6 秒】未帶 API Key 之 NVD 必要機制，防範流量阻斷
         time.sleep(6.0) 
         
         if response.status_code != 200:
             result["處理狀態"] = f"⚠️ API限制 ({response.status_code})"
-            result["弱點處理方式"] = "因請求過快遭 NVD 暫時拒絕。大批次查詢請向 NVD 申請免費 API Key 帶入系統。"
+            result["弱點處理方式"] = "因請求過快遭 NVD 暫時拒絕。大批次查詢請向 NVD 申請免費 API Key。"
             return result
             
         vulns = response.json().get("vulnerabilities", [])
@@ -58,7 +65,7 @@ def query_nvd_web(cpe_string):
         summary = []
         has_kev = False
         
-        # 僅提取前 3 個最嚴重的漏洞展示，避免網頁塞車卡死
+        # 僅提取前 3 個最嚴重的漏洞展示，避免網頁塞車
         for idx, v in enumerate(vulns[:3], 1):
             cve_id = v["cve"]["id"]
             
@@ -67,8 +74,16 @@ def query_nvd_web(cpe_string):
             if is_kev: 
                 has_kev = True
             
-            # 將英文漏洞敘述丟給 Google 翻譯成繁體中文
-            desc_en = v["cve"]["descriptions"][0].get("value", "") if v["cve"].get("descriptions") else ""
+            # 將英文漏洞敘述丟給 Google 翻譯
+            desc_list = v["cve"].get("descriptions", [])
+            desc_en = ""
+            for d in desc_list:
+                if d.get("lang") == "en":
+                    desc_en = d.get("value", "")
+                    break
+            if not desc_en and desc_list:
+                desc_en = desc_list[0].get("value", "")
+                
             desc_zh = translate_to_tw(desc_en)
             
             # 篩選出原廠 Patch 或是 廠商公告連結
@@ -139,7 +154,6 @@ if uploaded_file is not None:
             st.subheader("📊 分析結果成果預覽")
             st.dataframe(df)
             
-            # 提供內含繁中修補建議的完整 CSV 供使用者下載
             csv_data = df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
             st.download_button(
                 label="📥 下載已分析之 VANS/資安修補報告 (CSV)",
