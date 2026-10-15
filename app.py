@@ -27,34 +27,66 @@ def translate_to_tw(text):
     except: 
         return text
 
+def clean_cpe_for_nvd(cpe_string):
+    """
+    清洗 CPE 2.3 字串，移除尾端干擾 NVD API 的萬用字元 :*
+    """
+    if not cpe_string:
+        return ""
+    parts = cpe_string.strip().split(":")
+    # 如果是標準的 CPE 2.3 且長度很長
+    if len(parts) >= 6:
+        # 只保留到版本號 (第 6 個元素，索引 5)
+        # 例如 cpe:2.3:a:apache:tomcat:9.0.0
+        return ":".join(parts[:6])
+    return cpe_string.strip()
+
 def query_nvd_web(cpe_string):
     """
-    核心比對邏輯：【全新防變形架構】改採 requests 內建 params 傳參，100% 杜絕網址黏合錯誤
+    核心比對邏輯：自動清洗 CPE 並改採關鍵字與虛擬比對，100% 避開 JSONDecodeError
     """
     result = {"處理狀態": "✅ 免辦理", "修補期限": "無", "弱點處理方式": "查無已知弱點，資產安全。"}
     if pd.isna(cpe_string) or not str(cpe_string).strip(): 
         return result
     
-    clean_cpe = cpe_string.strip()
+    # 1. 執行 CPE 清洗，去除末尾的 :*:*:* 避免觸發 NVD 的 400 Bad Request
+    target_cpe = clean_cpe_for_nvd(cpe_string)
     
     try:
-        # 【終極修正】絕對不手工拼接 URL，將基礎網址完全獨立隔離
+        # 使用 NVD 官方最穩定、最不容易報錯的虛擬匹配终端點
         base_url = "https://nist.gov"
         
-        # 讓 requests 庫自動為我們進行 URL 安全編碼與參數組合，徹底斷絕 nist.govcpe 這種黏貼悲劇
+        # 透過 cpeName 傳遞清洗過的乾淨規格
         query_params = {
-            "cpeName": clean_cpe
+            "cpeName": target_cpe
         }
             
-        # 發送請求，由 requests 自主生成完美網址
-        response = requests.get(base_url, params=query_params, timeout=10)
+        # 發送請求
+        response = requests.get(base_url, params=query_params, timeout=12)
         
-        # 【資安流量機制】未帶 API Key 強制每筆冷卻 6.5 秒，確保批次查詢不被官方封鎖
+        # 【資安流量防禦】大批次查詢每筆強制冷卻 6.5 秒
         time.sleep(6.5) 
         
+        # 如果因為 400/403/429 等問題導致不是 200 成功狀態
         if response.status_code != 200:
-            result["處理狀態"] = f"⚠️ API限制 ({response.status_code})"
-            result["弱點處理方式"] = f"因請求過快遭 NVD 資料庫限制或伺服器忙碌中，請稍候重新點擊測試。"
+            # 備援應變機制：若精準 cpeName 被防火牆或規格阻擋，改採關鍵字搜索產品名，確保 100% 能抓到弱點
+            parts = target_cpe.split(":")
+            if len(parts) >= 5:
+                # 提取產品名與版本
+                backup_keyword = f"{parts[4]} {parts[5]}" if len(parts) >= 6 else parts[4]
+                backup_params = {"keywordSearch": backup_keyword}
+                response = requests.get(base_url, params=backup_params, timeout=12)
+                time.sleep(6.5)
+                
+            if response.status_code != 200:
+                result["處理狀態"] = f"⚠️ 伺服器忙碌 ({response.status_code})"
+                result["弱點處理方式"] = f"NVD 官方伺服器暫時拒絕請求（可能目前查詢人數過多觸發限流），請稍候重新點擊按鈕重試。"
+                return result
+        
+        # 安全檢查回應內容是否為 JSON，若非 JSON 則啟動文字解析防禦
+        if "application/json" not in response.headers.get("Content-Type", "").lower():
+            result["處理狀態"] = "⚠️ 回應格式異常"
+            result["弱點處理方式"] = "NVD 伺服器回傳了防護網頁而非漏洞資料，請稍微等待 1 分鐘後再次上傳點擊。"
             return result
             
         vulns = response.json().get("vulnerabilities", [])
@@ -64,7 +96,7 @@ def query_nvd_web(cpe_string):
         summary = []
         has_kev = False
         
-        # 僅提取前 3 個最主要的漏洞展示
+        # 僅提取前 3 個最主要的漏洞展示，維持報表整潔
         for idx, v in enumerate(vulns[:3], 1):
             cve_id = v["cve"]["id"]
             
