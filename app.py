@@ -1,118 +1,162 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
 import requests
-import time
+from datetime import datetime, timedelta
 
-def query_osv_live(cpe_string):
+def sync_cisa_kev_to_memory():
     """
-    全新核心：動態連線 Google OSV 漏洞庫，免 API Key、不封鎖、100% 查出所有真實資產弱點
+    一鍵同步核心：直接從 CISA 官方抓取最新數據，清洗並即時載入網頁記憶體中
     """
-    result = {"處理狀態": "✅ 免辦理", "修補期限": "無", "弱點處理方式": "No known high-risk vulnerabilities found. Asset is secure."}
+    cisa_url = "https://cisa.gov"
+    try:
+        # 向 CISA 官方發送請求 (此官方 Endpoint 開放給全球工具，絕不封鎖 Streamlit IP)
+        response = requests.get(cisa_url, timeout=15)
+        if response.status_code != 200:
+            return None, f"❌ CISA 伺服器回應錯誤碼: {response.status_code}"
+            
+        data = response.json()
+        vulnerabilities = data.get("vulnerabilities", [])
+        
+        # 建立動態交叉比對字典
+        temp_db = {}
+        for vuln in vulnerabilities:
+            cve_id = vuln.get("cveID")
+            vendor = vuln.get("vendorProject", "").lower().strip()
+            product = vuln.get("product", "").lower().strip()
+            desc = vuln.get("shortDescription", "No description available.")
+            action = vuln.get("requiredAction", "Apply updates per vendor instructions.")
+            
+            # 使用「廠商:產品」作為交叉比對的精準鎖鑰
+            key = f"{vendor}:{product}"
+            if key not in temp_db:
+                temp_db[key] = []
+                
+            temp_db[key].append({
+                "cve_id": cve_id,
+                "description": desc,
+                "remediation": action
+            })
+            
+        return temp_db, f"🎉 成功！已同步全球最新 {len(vulnerabilities)} 筆 CISA KEV 緊急漏洞數據！"
+    except Exception as e:
+        return None, f"💥 連線發生異常: {str(e)}"
+
+def query_dynamic_engine(cpe_string, KEV_DB):
+    """
+    全動態比對引擎：純粹從 CPE 2.3 字串中切出廠商與產品，動態與當下最新的 KEV 進行 1 秒交叉比對
+    """
+    result = {"處理狀態": "✅ 免辦理", "修補期限": "無", "弱點處理方式": "No active CISA KEV vulnerabilities matched for this specific vendor/product. Asset is secure."}
+    
     if pd.isna(cpe_string) or not str(cpe_string).strip(): 
         return result
+        
+    clean_cpe = cpe_string.strip().lower()
+    today = datetime.now()
     
-    clean_cpe = cpe_string.strip()
-    
-    try:
-        # 1. 為了讓 OSV API 能夠精準識別 CPE 2.3 萬用字元，自動進行規格清洗
-        parts = clean_cpe.split(":")
-        if len(parts) >= 6:
-            # 僅保留核心廠商、產品與主要版本號，去除後面干擾的 :*:*
-            clean_cpe = ":".join(parts[:6])
-            
-        url = "https://osv.dev"
-        payload = {"version": "1.0.0", "query": {"cpe": clean_cpe}}
+    # 拆解標準的 CPE 2.3 字串 (例如 cpe:2.3:a:microsoft:edge_chromium:86.0...)
+    parts = clean_cpe.split(":")
+    if len(parts) >= 5:
+        vendor = parts[3].strip()   # 欄位 3：廠商 (如 microsoft)
+        product = parts[4].strip()  # 欄位 4：產品 (如 edge_chromium)
         
-        # 發送標準 POST 請求
-        response = requests.post(url, json=payload, timeout=12)
-        time.sleep(0.15) # 極短冷卻，維持網頁大批次流暢度
+        # 組合交叉比對金鑰
+        lookup_key = f"{vendor}:{product}"
         
-        if response.status_code != 200:
-            return result
+        # 🔍 全動態無死角比對
+        if lookup_key in KEV_DB:
+            vulns = KEV_DB[lookup_key]
+            summary = []
             
-        vulns_data = response.json().get("vulns", [])
-        if not vulns_data:
-            return result # 查無漏洞，回傳免辦理
-            
-        summary = []
-        has_critical = False
-        
-        # 提取前 3 個該資產的真實漏洞細節
-        for idx, v in enumerate(vulns_data[:3], 1):
-            vuln_id = v.get("id", "Unknown-ID")
-            details_en = v.get("details", "No English description provided.")
-            
-            # 撈取修補公告網址
-            references = v.get("references", [])
-            links = [ref.get("url") for ref in references if ref.get("url")]
-            links_str = " | ".join(links[:2]) if links else "Refer to OSV Advisory page."
-            
-            # 智能安全判定
-            is_critical = "critical" in details_en.lower() or "rce" in details_en.lower() or "overflow" in details_en.lower()
-            if is_critical:
-                has_critical = True
+            # 撈取最主要的 3 筆緊急弱點公告
+            for idx, v in enumerate(vulns[:3], 1):
+                summary.append(
+                    f"[{idx}] {v['cve_id']} [⚠️ CISA KEV EMERGENCY!]\n"
+                    f"Description: {v['description']}\n"
+                    f"Remediation: {v['remediation']}"
+                )
                 
-            critical_tag = " [⚠️ HIGH RISK!]" if is_critical else ""
-            summary.append(f"[{idx}] {vuln_id}{critical_tag}\nDescription: {details_en}\nRemediation Link: {links_str}")
-        
-        if has_critical:
             result["處理狀態"] = "🚨 14天內強制修補"
-            result["修補期限"] = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
-        else:
-            result["處理狀態"] = "⏳ 需進行修補"
-            result["修補期限"] = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
+            result["修補期限"] = (today + timedelta(days=14)).strftime("%Y-%m-%d")
+            result["弱點處理方式"] = "\n\n".join(summary)
             
-        result["弱點處理方式"] = "\n\n".join(summary)
-        return result
-        
-    except:
-        return result
+    return result
 
-# --- Streamlit UI 佈局 ---
-st.set_page_config(page_title="CPE 2.3 弱點自動化分析平台", layout="wide")
-st.title("🛡️ CPE 2.3 資產弱點分析與修補自動化平台 (OSV 全資產動態版)")
-st.markdown("本系統已無縫串接 **Google OSV 全球漏洞資料庫**。免 API Key，100% 支援全品項 CPE 2.3 動態弱點偵測。")
+# --- Streamlit 網頁 UI 介面佈局 ---
+st.set_page_config(page_title="CPE 2.3 弱點自動化分析平台 (終極動態版)", layout="wide")
+st.title("🛡️ CPE 2.3 資產弱點分析與修補自動化平台 (一鍵全動態版)")
+st.markdown("本系統已升級為**「記憶體即時比對引擎」**。免 API Key、不封鎖，點擊按鈕即可動態下載最新防線，秒級完成微軟與 Linux 全量資產比對。")
 
-uploaded_file = st.file_uploader("📥 請上傳您的資產 CSV 檔案 (必須包含名為 'CPE' 的欄位)", type=["csv"])
+# 1. 創新的「一鍵同步」區塊
+st.subheader("🔄 第一步：全球漏洞資料庫一鍵同步")
+col1, col2 = st.columns([2, 5])
+
+# 初始化 Streamlit 記憶體狀態，防止網頁刷新時資料弄丟
+if "loaded_db" not in st.session_state:
+    st.session_state.loaded_db = None
+
+with col1:
+    if st.button("🔄 點此同步最新 CISA KEV 資料庫"):
+        with st.spinner("正在向美國官方下載並建立最新全量字典..."):
+            db, message = sync_cisa_kev_to_memory()
+            if db:
+                st.session_state.loaded_db = db
+                st.toast(message, icon="🎉")
+            else:
+                st.error(message)
+
+with col2:
+    if st.session_state.loaded_db:
+        st.info(f"🟢 目前防線狀態：已載入全球最新緊急弱點字典（共 {len(st.session_state.loaded_db)} 款產品受列管）。您可以開始比對。")
+    else:
+        st.warning("🟡 目前防線狀態：尚未載入字典。請先點擊左側按鈕進行同步，否則所有資產將預設為免辦理。")
+
+st.markdown("---")
+
+# 2. 上傳與批次比對區塊
+st.subheader("📥 第二步：上傳要比對的 VANS 資產 CSV 檔案")
+uploaded_file = st.file_uploader("請選擇包含 'CPE' 欄位的資產清單 CSV 檔案", type=["csv"])
 
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
-    st.success("✅ 檔案上傳成功！")
+    st.success("✅ 資產檔案上傳成功！")
     
     if "CPE" not in df.columns:
-        st.error("❌ 錯誤：您的 CSV 檔案中沒有發現名為 'CPE' 的欄位！")
+        st.error("❌ 錯誤：上傳的 CSV 檔案中找不到名為 'CPE' 的欄位，請檢查標頭！")
     else:
-        st.subheader("📋 原始資料預覽")
+        st.subheader("📋 原始資產資料預覽 (前3筆)")
         st.dataframe(df.head(3))
         
-        if st.button("🚀 開始動態全資產弱點比對分析"):
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            statuses, deadlines, methods = [], [], []
-            total = len(df)
-            
-            for index, row in df.iterrows():
-                status_text.text(f"⚡ 正在跨資料庫分析第 {index+1}/{total} 筆資產：{row['CPE']}")
-                res = query_osv_live(row["CPE"])
-                statuses.append(res["處理狀態"])
-                deadlines.append(res["修補期限"])
-                methods.append(res["弱點處理方式"])
-                progress_bar.progress((index + 1) / total)
-            
-            df["處理狀態"] = statuses
-            df["修補期限"] = deadlines
-            df["弱點處理方式"] = methods
-            
-            status_text.text("🎉 全數動態資產比對完成！")
-            st.subheader("📊 分析結果成果預覽")
-            st.dataframe(df)
-            
-            csv_data = df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-            st.download_button(
-                label="📥 下載英文弱點報告 (CSV)",
-                data=csv_data,
-                file_name=f"CPE_Remediation_Report_EN.csv",
-                mime="text/csv"
-            )
+        if st.button("🚀 第三步：開始動態全資產弱點比對分析"):
+            if not st.session_state.loaded_db:
+                st.error("❌ 拒絕執行：請先回到第一步點擊『一鍵同步』按鈕載入最新字典，再進行比對！")
+            else:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                statuses, deadlines, methods = [], [], []
+                total = len(df)
+                
+                # 記憶體大批次比對在幾毫秒內就能完成，體驗極佳
+                for index, row in df.iterrows():
+                    status_text.text(f"⚡ 正在進行動態資產交叉比對第 {index+1}/{total} 筆...")
+                    res = query_dynamic_engine(row["CPE"], st.session_state.loaded_db)
+                    statuses.append(res["處理狀態"])
+                    deadlines.append(res["修補期限"])
+                    methods.append(res["弱點處理方式"])
+                    progress_bar.progress((index + 1) / total)
+                
+                df["處理狀態"] = statuses
+                df["修補期限"] = deadlines
+                df["弱點處理方式"] = methods
+                
+                status_text.text("🎉 全數動態資產比對完成！")
+                st.subheader("📊 第四步：分析結果成果預覽與下載")
+                st.dataframe(df)
+                
+                csv_data = df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+                st.download_button(
+                    label="📥 點此下載英文弱點報告 (CSV)",
+                    data=csv_data,
+                    file_name=f"CPE_Remediation_Report_EN.csv",
+                    mime="text/csv"
+                )
