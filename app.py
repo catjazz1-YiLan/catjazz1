@@ -9,26 +9,22 @@ def sync_cisa_kev_to_memory():
     """
     cisa_url = "https://cisa.gov"
     
-    # 【核心修正】加入標準瀏覽器偽裝標頭，防止 CISA 將其判定為爬蟲而拋出 HTML 導致 JSON 崩潰
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
     try:
-        # 攜帶偽裝 Header 發送請求
         response = requests.get(cisa_url, headers=headers, timeout=15)
         
         if response.status_code != 200:
             return None, f"❌ CISA 伺服器回應錯誤碼: {response.status_code}。請稍候 30 秒再次嘗試點擊。"
             
-        # 安全防禦機制：檢查回傳是否確實為 JSON，防範 Cloudflare 攔截頁面
         if "application/json" not in response.headers.get("Content-Type", "").lower():
             return None, "❌ 觸發 CISA 防火牆頻率限制。請等待 1 分鐘後，重新點擊按鈕重試即可。"
             
         data = response.json()
         vulnerabilities = data.get("vulnerabilities", [])
         
-        # 建立動態交叉比對字典
         temp_db = {}
         for vuln in vulnerabilities:
             cve_id = vuln.get("cveID")
@@ -97,7 +93,9 @@ if "loaded_db" not in st.session_state:
     st.session_state.loaded_db = None
 
 st.subheader("🔄 第一步：全球漏洞資料庫一鍵同步")
-col1, col2 = st.columns()
+
+# 【終極修正點】在 columns 括號中明確補上數量 2，徹底根除 TypeError 網頁崩潰
+col1, col2 = st.columns(2)
 
 with col1:
     if st.button("🔄 點此同步最新 CISA KEV 資料庫"):
