@@ -10,7 +10,7 @@ def clean_name_engine(text):
     return str(text).lower().replace("_", "").replace("-", "").replace(" ", "").strip()
 
 def sync_all_vendor_apis_to_memory():
-    """【全球多路大廠資安公告即時同步常式】"""
+    """【全球多路大廠資安公告即時同步常式】欄位已完全對齊優化"""
     cisa_url = "https://cisa.gov"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     temp_db = {}
@@ -30,36 +30,86 @@ def sync_all_vendor_apis_to_memory():
                 temp_db[key].append({
                     "cve_id": cve,
                     "source": "CISA KEV 官方動態直連",
-                    "description": vuln.get("shortDescription", ""),
+                    "description": vuln.get("shortDescription", "No description available."),
                     "remediation": vuln.get("requiredAction", "請遵循原廠指引套用更新。")
                 })
         
-        # 2. 智能融合微軟 MSRC 核心伺服器產品矩陣 (.NET / Windows Server / SQL)
+        # 2. 智能融合微軟 MSRC 核心伺服器產品矩陣 【💡 欄位名稱已全面校正為 description 與 remediation】
         ms_matrix = {
-            "netframework": {"cve": "CVE-2023-38180", "desc": "Microsoft .NET Framework 遠端執行程式碼與阻斷服務漏洞。", "kb": "請透過 Windows Update 或 MSRC 安全公告中心下載最新累積安全性更新套件修補。"},
-            "windowsserver2012": {"cve": "CVE-2023-38180", "desc": "Windows Server 2012 R2 核心組件嚴重遠端執行程式碼漏洞。", "kb": "本產品已停止常規支援，請強制下載擴充安全性更新 (ESU) KB補丁或進行系統升級。"},
-            "windowsserver2016": {"cve": "CVE-2023-21554", "desc": "Windows Server 2016 訊息佇列遠端執行程式碼漏洞 (QueueJumper)。", "kb": "請立即安裝微軟官方累積更新補丁 KB5025228 或更新版本。"},
-            "windowsserver2019": {"cve": "CVE-2023-24880", "desc": "Windows Server 2019 SmartScreen 安全功能繞過漏洞。", "kb": "請至 Microsoft Update Catalog 網站下載並套用累積更新補丁 KB5023392。"},
-            "windowsserver2022": {"cve": "CVE-2024-30040", "desc": "Windows Server 2022 Windows 核心安全功能繞過漏洞。", "kb": "請透過 Windows Server Update Services (WSUS) 派發並部署最新的月度累積更新 KB5037782。"},
-            "sqlserver": {"cve": "CVE-2022-29148", "desc": "Microsoft SQL Server 擴充事件組件遠端執行程式碼漏洞。", "kb": "請立即至微軟官網下載對應版本 SQL Server 的累積更新 (CU) 安全補丁。"}
+            "netframework": {
+                "cve": "CVE-2023-38180", 
+                "description": "Microsoft .NET Framework 遠端執行程式碼與阻斷服務漏洞。", 
+                "remediation": "請透過 Windows Update 或 MSRC 安全公告中心下載最新累積安全性更新套件修補。"
+            },
+            "windowsserver2012": {
+                "cve": "CVE-2023-38180", 
+                "description": "Windows Server 2012 R2 核心組件嚴重遠端執行程式碼漏洞。", 
+                "remediation": "本產品已停止常規支援，請強制下載擴充安全性更新 (ESU) KB補丁或進行系統升級。"
+            },
+            "windowsserver2016": {
+                "cve": "CVE-2023-21554", 
+                "description": "Windows Server 2016 訊息佇列遠端執行程式碼漏洞 (QueueJumper)。", 
+                "remediation": "請立即安裝微軟官方累積更新補丁 KB5025228 或更新版本。"
+            },
+            "windowsserver2019": {
+                "cve": "CVE-2023-24880", 
+                "description": "Windows Server 2019 SmartScreen 安全功能繞過漏洞。", 
+                "remediation": "請至 Microsoft Update Catalog 網站下載並套用累積更新補丁 KB5023392。"
+            },
+            "windowsserver2022": {
+                "cve": "CVE-2024-30040", 
+                "description": "Windows Server 2022 Windows 核心安全功能繞過漏洞。", 
+                "remediation": "請透過 Windows Server Update Services (WSUS) 派發並部署最新的月度累積更新 KB5037782。"
+            },
+            "sqlserver": {
+                "cve": "CVE-2022-29148", 
+                "description": "Microsoft SQL Server 擴充事件組件遠端執行程式碼漏洞。", 
+                "remediation": "請立即至微軟官網下載對應版本 SQL Server 的累積更新 (CU) 安全補丁。"
+            }
         }
         for prod, info in ms_matrix.items():
             key = f"microsoft:{prod}"
             if key not in temp_db: temp_db[key] = []
-            temp_db[key].append({"cve_id": info["cve"], "source": "Microsoft MSRC 安全公告中心 (CVRF)", "description": info["desc"], "remediation": info["kb"]})
+            temp_db[key].append({
+                "cve_id": info["cve"], 
+                "source": "Microsoft MSRC 安全公告中心 (CVRF)", 
+                "description": info["description"], 
+                "remediation": info["remediation"]
+            })
 
-        # 3. 智能融合 Linux、Firefox 與 VMware 官方公告
+        # 3. 智能融合 Linux、Firefox 與 VMware 官方公告 【💡 欄位名稱完全對齊】
         non_ms_matrix = {
-            "vmware:esxi": {"cve": "CVE-2024-22252", "desc": "VMware ESXi XHCI USB 控制器釋放後操作 嚴重漏洞。", "patch": "請立即參閱 VMware VMSA-2024-0006 官方資安公告下載升級更新檔。"},
-            "redhat:enterprise_linux": {"cve": "CVE-2024-3094", "desc": "Linux 生態系 XZ Utils 編譯器工具遭遇惡意後門植入 (XZ Backdoor 世紀漏洞)。", "patch": "請執行 'yum update xz'，強制將套件版本升級至 RedHat 官方公告之安全版本。"},
-            "oracle:database_server": {"cve": "CVE-2023-22051", "desc": "Oracle Database Server 核心 RDBMS 組件高風險安全漏洞。", "patch": "請立即套用 Oracle 季度發布之關鍵補丁更新 (Critical Patch Update, CPU)。"},
-            "mozilla:firefox": {"cve": "CVE-2022-1802", "description": "Prototype pollution in Top-Level Await allows execution context corruption.", "remediation": "Upgrade Firefox to version 100.0.2 or higher."}
+            "vmware:esxi": {
+                "cve": "CVE-2024-22252", 
+                "description": "VMware ESXi XHCI USB 控制器釋放後操作 嚴重漏洞。", 
+                "remediation": "請立即參閱 VMware VMSA-2024-0006 官方資安公告下載升級更新檔。"
+            },
+            "redhat:enterprise_linux": {
+                "cve": "CVE-2024-3094", 
+                "description": "Linux 生態系 XZ Utils 編譯器工具遭遇惡意後門植入 (XZ Backdoor 世紀漏洞)。", 
+                "remediation": "請執行 'yum update xz'，強制將套件版本升級至 RedHat 官方公告之安全版本。"
+            },
+            "oracle:database_server": {
+                "cve": "CVE-2023-22051", 
+                "description": "Oracle Database Server 核心 RDBMS 組件高風險安全漏洞。", 
+                "remediation": "請立即套用 Oracle 季度發布之關鍵補丁更新 (Critical Patch Update, CPU)。"
+            },
+            "mozilla:firefox": {
+                "cve": "CVE-2022-1802", 
+                "description": "Prototype pollution in Top-Level Await allows execution context corruption.", 
+                "remediation": "Upgrade Firefox to version 100.0.2 or higher."
+            }
         }
         for prod_key, info in non_ms_matrix.items():
             v, p = prod_key.split(":")
             key = f"{clean_name_engine(v)}:{clean_name_engine(p)}"
             if key not in temp_db: temp_db[key] = []
-            temp_db[key].append({"cve_id": info["cve"], "source": "大廠官方公告中心", "description": info["desc"], "remediation": info["patch"]})
+            temp_db[key].append({
+                "cve_id": info["cve"], 
+                "source": "大廠官方公告中心", 
+                "description": info["description"], 
+                "remediation": info["remediation"]
+            })
 
         return temp_db, "live", f"🟢 成功！已透過外網即時串接全量 API，即時下載並融合當下最新字典數據！"
     except Exception as e:
@@ -67,7 +117,7 @@ def sync_all_vendor_apis_to_memory():
 
 def query_ultimate_cloud_engine(cpe_string, SECURE_DB):
     """
-    全動態比對：【已校正精準索引位置】解決一切錯位盲點
+    全動態比對：精準定位索引 3(Vendor) 與 4(Product)，解決一切錯位盲點
     """
     result = {"處理狀態": "✅ 免辦理", "修補期限": "無", "弱點處理方式": "No active CISA KEV or MSRC vulnerabilities matched for this specific vendor/product. Asset is secure."}
     if pd.isna(cpe_string) or not str(cpe_string).strip(): return result
@@ -76,9 +126,7 @@ def query_ultimate_cloud_engine(cpe_string, SECURE_DB):
     today = datetime.now()
     
     parts = clean_cpe.split(":")
-    # 確保是符合 CPE 2.3 正規格式的長度
     if len(parts) >= 5:
-        # 💡 【終極修正】索引 3 是 Vendor(廠商)，索引 4 是 Product(產品名稱)！徹底排除上一版的版本號錯位
         vendor_clean = clean_name_engine(parts[3])   
         product_clean = clean_name_engine(parts[4])  
         lookup_key = f"{vendor_clean}:{product_clean}"
