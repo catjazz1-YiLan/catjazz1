@@ -20,7 +20,7 @@ def translate_to_tw(text):
         
         # 精準解析 Google 翻譯回傳的特殊巢狀陣列結構
         translated_segments = []
-        if res and isinstance(res, list) and len(res) > 0 and res[0]:
+        if res and isinstance(res, list) and len(res) > 0:
             for item in res[0]:
                 if item and isinstance(item, list) and len(item) > 0:
                     translated_segments.append(str(item[0]))
@@ -42,7 +42,7 @@ def query_nvd_web(cpe_string):
         # 將整個 CPE 2.3 字串進行標準的 URL 安全編碼，避免特殊字元造成網址解析錯誤
         encoded_cpe = urllib.parse.quote(clean_cpe)
         
-        # 採用 NVD 官方最穩定、最標準的 cpeName 查詢 Endpoint (注意這裏的斜線與參數串接)
+        # 採用 NVD 官方最穩定、最標準的 cpeName 查詢 Endpoint
         url = f"https://nist.gov{encoded_cpe}"
             
         response = requests.get(url, timeout=10)
