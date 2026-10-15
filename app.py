@@ -5,12 +5,10 @@ import urllib.parse
 from datetime import datetime, timedelta
 
 def clean_name_engine(text):
-    """【CPE正規化核心】洗掉所有標點與空格，打碎命名壁壘"""
     if not text: return ""
     return str(text).lower().replace("_", "").replace("-", "").replace(" ", "").replace(".", "").strip()
 
 def sync_all_vendor_apis_to_memory():
-    """【全球多路大廠資安公告即時同步常式】"""
     cisa_url = "https://cisa.gov"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     temp_db = {}
@@ -24,7 +22,6 @@ def sync_all_vendor_apis_to_memory():
                 v_clean = clean_name_engine(vuln.get("vendorProject", ""))
                 p_clean = clean_name_engine(vuln.get("product", ""))
                 
-                # 建立多重模糊別名索引，全面根除微軟 .NET 的大小寫空格盲點
                 keys = [f"{v_clean}:{p_clean}"]
                 if "netframework" in p_clean: keys.append(f"{v_clean}:netframework")
                 if "netcore" in p_clean: keys.append(f"{v_clean}:netcore")
@@ -38,7 +35,6 @@ def sync_all_vendor_apis_to_memory():
                         "remediation": vuln.get("requiredAction", "請遵循原廠指引套用更新。")
                     })
         
-        # 2. 智能融合微軟 MSRC 核心伺服器產品矩陣
         ms_matrix = {
             "netframework": {"cve": "CVE-2023-38180", "description": "Microsoft .NET Framework 遠端執行程式碼與阻斷服務漏洞。", "remediation": "請透過 Windows Update 或 MSRC 安全公告中心下載最新累積安全性更新套件修補。"},
             "windowsserver2012": {"cve": "CVE-2023-38180", "description": "Windows Server 2012 R2 核心組件嚴重遠端執行程式碼漏洞。", "remediation": "本產品已停止常規支援，請強制下載擴充安全性更新 (ESU) KB補丁或進行系統升級。"},
@@ -52,10 +48,9 @@ def sync_all_vendor_apis_to_memory():
             if key not in temp_db: temp_db[key] = []
             temp_db[key].append({"cve_id": info["cve"], "source": "Microsoft MSRC 安全公告中心 (CVRF)", "description": info["description"], "remediation": info["remediation"]})
 
-        # 3. 智能融合 Linux、Firefox 與 VMware 官方公告
         non_ms_matrix = {
             "vmware:esxi": {"cve": "CVE-2024-22252", "description": "VMware ESXi XHCI USB 控制器釋放後操作 嚴重漏洞。", "remediation": "請立即參閱 VMware VMSA-2024-0006 官方資安公告下載升級更新檔。"},
-            "redhat:enterprise_linux": {"cve": "CVE-2024-3094", "description": "Linux 生態系 XZ Utils 編譯器工具遭遇惡意後門植入 (XZ Backdoor 世紀漏洞)。", "remediation": "請執行 'yum update xz'，強制將套件版本升級至 RedHat 官方公告之安全版本。"},
+            "redhat:enterprise_linux": {"cve": "CVE-2024-3094", "description": "Linux 生態系 XZ Utils 編譯器工具遭遇惡意後門植入 (XZ Backdoor 世紀漏洞)。", "patch": "請執行 'yum update xz'，強制將套件版本升級至 RedHat 官方公告之安全版本。"},
             "oracle:database_server": {"cve": "CVE-2023-22051", "description": "Oracle Database Server 核心 RDBMS 組件高風險安全漏洞。", "remediation": "請立即套用 Oracle 季度發布之關鍵補丁更新 (Critical Patch Update, CPU)。"},
             "mozilla:firefox": {"cve": "CVE-2022-1802", "description": "Prototype pollution in Top-Level Await allows execution context corruption.", "remediation": "Upgrade Firefox to version 100.0.2 or higher."}
         }
@@ -70,16 +65,12 @@ def sync_all_vendor_apis_to_memory():
         return None, "error", f"💥 雲端連線發生異常: {str(e)}"
 
 def query_ultimate_cloud_engine(cpe_string, SECURE_DB):
-    """
-    全動態比對大腦：【已升級為 O(1) 級極速雜湊精準對照，徹底杜絕無窮迴圈與卡死】
-    """
     result = {"處理狀態": "✅ 免辦理", "修補期限": "無", "弱點處理方式": "No active CISA KEV or MSRC vulnerabilities matched for this specific vendor/product. Asset is secure."}
     if pd.isna(cpe_string) or not str(cpe_string).strip(): return result
     
     clean_cpe = cpe_string.strip().lower()
     today = datetime.now()
     
-    # ==================== 🛠️ 補強常式：自動攔截已超越生命週期 (EOL) 的過期孤兒資產 ====================
     eol_keywords = {
         "office_web_components:2003": "Microsoft Office 2003 Web Components",
         "windows_server_2008": "Microsoft Windows Server 2008 R2",
@@ -97,20 +88,17 @@ def query_ultimate_cloud_engine(cpe_string, SECURE_DB):
                 f"🔗處置建議: 必須立即安排汰換時程，將主機作業系統或軟體套件強制無條件升級至尚在原廠生命週期內之安全版本。"
             )
             return result
-    # ====================================================================================================
 
     parts = clean_cpe.split(":")
     if len(parts) >= 5:
         vendor_clean = clean_name_engine(parts)   
         product_clean = clean_name_engine(parts)  
         
-        # 智慧型動態模糊縮寫修正
         if "netframework" in product_clean: product_clean = "netframework"
         if "netcore" in product_clean: product_clean = "netcore"
         
         lookup_key = f"{vendor_clean}:{product_clean}"
         
-        # 💡 【終極效能修正】放棄慢速且易卡死的 Contains 雙層迴圈，直接使用字典 O(1) 快速精準命中！
         if lookup_key in SECURE_DB:
             vulns = SECURE_DB[lookup_key]
             summary = []
@@ -146,7 +134,7 @@ def query_ultimate_cloud_engine(cpe_string, SECURE_DB):
     return result
 
 # --- Streamlit 網頁 UI 介面佈局 ---
-st.set_page_config(page_title="CPE 2.3 弱點自動化分析平台 (雲端旗艦完全體)", layout="wide")
+st.set_page_config(page_title="CPE 2.3 弱點自動化分析平台 (雲端旗艦純淨版)", layout="wide")
 st.title("🛡️ CPE 2.3 資產弱點分析與修補自動化平台 (雲端全動態版)")
 st.markdown("本系統已將**「NVD字典別名正規化」**、**「微軟MSRC公告」**與**「EOL過期老舊產品攔截常式」**完全移植至雲端網頁中。1秒自動完成跨大廠去盲點比對。")
 
@@ -200,3 +188,16 @@ if uploaded_file is not None:
                 for index, row in df.iterrows():
                     status_text.text(f"⚡ 正在執行雲端高流速匹配比對第 {index+1}/{total} 筆資產...")
                     res = query_ultimate_cloud_engine(row["CPE"], st.session_state.cloud_db)
+                    statuses.append(res["處理狀態"])
+                    deadlines.append(res["修補期限"])
+                    methods.append(res["弱點處理方式"])
+                    progress_bar.progress((index + 1) / total)
+                
+                df["處理狀態"] = statuses
+                df["修補期限"] = deadlines
+                df["弱點處理方式"] = methods
+                
+                status_text.text("🎉 全數動態資產跨廠比對完成！")
+                
+                # 💡 【終極修正核心】徹底拔除 st.dataframe(df)，防止網頁因解析長篇大論的微軟句點文字而凍結死鎖
+                st.subheader("📊 第四步：分析報告產出成功")
