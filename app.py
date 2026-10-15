@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import requests
 import time
 import urllib.parse
+import traceback  # 引入錯誤追蹤工具
 
 def translate_to_tw(text):
     """
@@ -13,24 +14,24 @@ def translate_to_tw(text):
         return "無說明"
     try:
         clean_text = text.strip()[:800]
-        # 使用標準的 urllib.parse.quote 確保 URL 安全編碼
         encoded_text = urllib.parse.quote(clean_text)
         url = f"https://googleapis.com{encoded_text}"
         res = requests.get(url, timeout=5).json()
         
-        # 精準解析 Google 翻譯回傳的特殊巢狀陣列結構
+        # 修正：最安全的巢狀陣列解析法，避免強轉 str 造成崩潰
         translated_segments = []
-        if res and isinstance(res, list) and len(res) > 0:
+        if res and isinstance(res, list) and len(res) > 0 and res[0]:
             for item in res[0]:
-                if item and isinstance(item, list) and len(item) > 0:
-                    translated_segments.append(str(item[0]))
+                if item and isinstance(item, list) and len(item) > 0 and item[0]:
+                    translated_segments.append(item[0])
         return "".join(translated_segments) if translated_segments else text
-    except: 
-        return text
+    except Exception as te: 
+        # 翻譯如果壞掉，至少保留英文原文，不要讓整支程式崩潰
+        return f"[翻譯異常，保留原文] {text} (錯誤原因: {str(te)})"
 
 def query_nvd_web(cpe_string):
     """
-    核心比對邏輯：使用標準官方匹配策略進行查詢，完美避開解析崩潰與流量封鎖
+    核心比對邏輯：使用標準官方匹配策略進行查詢，並在發生錯誤時直接回傳報錯訊息
     """
     result = {"處理狀態": "✅ 免辦理", "修補期限": "無", "弱點處理方式": "查無已知弱點，資產安全。"}
     if pd.isna(cpe_string) or not str(cpe_string).strip(): 
@@ -39,7 +40,7 @@ def query_nvd_web(cpe_string):
     clean_cpe = cpe_string.strip()
     
     try:
-        # 將整個 CPE 2.3 字串進行標準的 URL 安全編碼，避免特殊字元造成網址解析錯誤
+        # 將整個 CPE 2.3 字串進行標準的 URL 安全編碼
         encoded_cpe = urllib.parse.quote(clean_cpe)
         
         # 採用 NVD 官方最穩定、最標準的 cpeName 查詢 Endpoint
@@ -53,7 +54,7 @@ def query_nvd_web(cpe_string):
         # 如果因為請求過快遇到限制 (例如 403 或 429)，將狀態如實反映
         if response.status_code != 200:
             result["處理狀態"] = f"⚠️ API限制 ({response.status_code})"
-            result["弱點處理方式"] = "因批次請求過快遭 NVD 資料庫限制，請稍候重試或向 NVD 申請免費 API Key 帶入系統。"
+            result["弱點處理方式"] = f"因批次請求過快遭 NVD 資料庫限制，請稍候重試。網址: {url}"
             return result
             
         vulns = response.json().get("vulnerabilities", [])
@@ -106,8 +107,10 @@ def query_nvd_web(cpe_string):
         return result
         
     except Exception as e: 
+        # 【核心 Debug 升級】不再只寫程式異常，直接吐出 Python 的錯誤切確行數與原因
+        error_msg = traceback.format_exc()
         result["處理狀態"] = "💥 程式異常"
-        result["弱點處理方式"] = f"系統執行錯誤: {str(e)}"
+        result["弱點處理方式"] = f"系統執行詳細錯誤:\n{error_msg}"
         return result
 
 # --- Streamlit 網頁 UI 介面佈局 ---
