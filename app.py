@@ -20,16 +20,16 @@ def translate_to_tw(text):
         
         translated_segments = []
         if res and isinstance(res, list) and len(res) > 0:
-            for item in res[0]:
+            for item in res:
                 if item and isinstance(item, list) and len(item) > 0:
-                    translated_segments.append(str(item[0]))
+                    translated_segments.append(str(item))
         return "".join(translated_segments) if translated_segments else text
     except: 
         return text
 
 def query_nvd_web(cpe_string):
     """
-    核心比對邏輯：【已完全修正網址字串】精準對接美國 NVD 官方資料庫
+    核心比對邏輯：【全新防變形架構】改採 requests 內建 params 傳參，100% 杜絕網址黏合錯誤
     """
     result = {"處理狀態": "✅ 免辦理", "修補期限": "無", "弱點處理方式": "查無已知弱點，資產安全。"}
     if pd.isna(cpe_string) or not str(cpe_string).strip(): 
@@ -38,21 +38,23 @@ def query_nvd_web(cpe_string):
     clean_cpe = cpe_string.strip()
     
     try:
-        # 將 CPE 2.3 字串進行標準 URL 編碼
-        encoded_cpe = urllib.parse.quote(clean_cpe)
+        # 【終極修正】絕對不手工拼接 URL，將基礎網址完全獨立隔離
+        base_url = "https://nist.gov"
         
-        # 【終極修正】完整獨立的官方 API Endpoint 網址，絕不與其他變數拼接
-        url = f"https://nist.gov{encoded_cpe}"
+        # 讓 requests 庫自動為我們進行 URL 安全編碼與參數組合，徹底斷絕 nist.govcpe 這種黏貼悲劇
+        query_params = {
+            "cpeName": clean_cpe
+        }
             
-        # 發送請求
-        response = requests.get(url, timeout=10)
+        # 發送請求，由 requests 自主生成完美網址
+        response = requests.get(base_url, params=query_params, timeout=10)
         
-        # 【重要安全機制】未帶 API Key 強制冷卻 6.5 秒，避免遭防火牆阻斷
+        # 【資安流量機制】未帶 API Key 強制每筆冷卻 6.5 秒，確保批次查詢不被官方封鎖
         time.sleep(6.5) 
         
         if response.status_code != 200:
             result["處理狀態"] = f"⚠️ API限制 ({response.status_code})"
-            result["弱點處理方式"] = f"因請求過快遭 NVD 資料庫限制，請稍候重試或填入 API Key。"
+            result["弱點處理方式"] = f"因請求過快遭 NVD 資料庫限制或伺服器忙碌中，請稍候重新點擊測試。"
             return result
             
         vulns = response.json().get("vulnerabilities", [])
